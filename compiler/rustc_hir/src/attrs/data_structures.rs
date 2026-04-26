@@ -1014,7 +1014,6 @@ pub enum AttributeKind {
     /// Represents [`#[deprecated]`](https://doc.rust-lang.org/stable/reference/attributes/diagnostics.html#the-deprecated-attribute).
     Deprecated {
         deprecation: Deprecation,
-        span: Span,
     },
 
     /// Represents `#[diagnostic::do_not_recommend]`.
@@ -1233,7 +1232,6 @@ pub enum AttributeKind {
     /// Represents `#[pattern_complexity_limit]`
     PatternComplexityLimit {
         attr_span: Span,
-        limit_span: Span,
         limit: Limit,
     },
 
@@ -1348,8 +1346,6 @@ pub enum AttributeKind {
     /// Represents `#[rustc_const_stable]` and `#[rustc_const_unstable]`.
     RustcConstStability {
         stability: PartialConstStability,
-        /// Span of the `#[rustc_const_stable(...)]` or `#[rustc_const_unstable(...)]` attribute
-        span: Span,
     },
 
     /// Represents `#[rustc_const_stable_indirect]`.
@@ -1674,3 +1670,5 @@ pub enum AttributeKind {
     WindowsSubsystem(WindowsSubsystemKind, Span),
     // tidy-alphabetical-end
 }
+
+const _: () = assert!(std::mem::size_of::<AttributeKind>() == 32);
