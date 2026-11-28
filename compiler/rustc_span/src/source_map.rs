@@ -24,6 +24,7 @@ use crate::*;
 mod tests;
 
 const SOURCE_FILE_ALIGN: u32 = 128;
+const SOURCE_FILE_COUNT: u32 = 9;
 
 /// Returns the span itself if it doesn't come from a macro expansion,
 /// otherwise return the call site span up to the `enclosing_sp` by
@@ -175,7 +176,7 @@ impl FileLoader for RealFileLoader {
 struct SourceMapFiles {
     source_files: monotonic::MonotonicVec<Arc<SourceFile>>,
     stable_id_to_source_file: UnhashMap<StableSourceFileId, Arc<SourceFile>>,
-    idx_lookup: Vec<u32>,
+    idx_lookup: Option<Vec<u32>>,
 }
 
 impl std::fmt::Debug for SourceMapFiles {
@@ -351,10 +352,30 @@ impl SourceMap {
         let idx = u32::try_from(files.source_files.len()).unwrap();
         files.source_files.push(Arc::clone(&file));
         files.stable_id_to_source_file.insert(file_id, Arc::clone(&file));
-        // normalized_source_len is one less than the real len, so this is correct.
-        let lookup_len = (file.normalized_source_len.to_u32() / SOURCE_FILE_ALIGN) + 1;
-        for _ in 0..lookup_len {
-            files.idx_lookup.push(idx);
+        match idx.cmp(&SOURCE_FILE_COUNT) {
+            cmp::Ordering::Less => (),
+            cmp::Ordering::Equal => {
+                // end_position is one less than the real end, so this is correct.
+                let len = (file.end_position().to_u32() / SOURCE_FILE_ALIGN) + 1;
+                let mut idx_lookup = Vec::with_capacity(len.try_into().unwrap());
+                for (idx, file) in files.source_files.iter().enumerate() {
+                    let idx: u32 = idx.try_into().unwrap();
+                    let lookup_len = (file.normalized_source_len.to_u32() / SOURCE_FILE_ALIGN) + 1;
+                    for _ in 0..lookup_len {
+                        idx_lookup.push(idx);
+                    }
+                }
+                files.idx_lookup = Some(idx_lookup)
+            }
+            cmp::Ordering::Greater => {
+                // normalized_source_len is one less than the real len, so this is correct.
+                let lookup_len = (file.normalized_source_len.to_u32() / SOURCE_FILE_ALIGN) + 1;
+                let idx_lookup = files.idx_lookup.as_mut().unwrap();
+                idx_lookup.reserve(lookup_len.try_into().unwrap());
+                for _ in 0..lookup_len {
+                    idx_lookup.push(idx);
+                }
+            }
         }
 
         Ok(file)
@@ -1066,12 +1087,16 @@ impl SourceMap {
     /// since `source_files` is a `MonotonicVec`
     pub fn lookup_source_file_idx(&self, pos: BytePos) -> usize {
         let files = self.files.borrow();
-        if let Some(idx) =
-            files.idx_lookup.get(usize::try_from(pos.to_u32() / SOURCE_FILE_ALIGN).unwrap())
-        {
-            usize::try_from(*idx).unwrap()
+        if let Some(idx_lookup) = &files.idx_lookup {
+            if let Some(idx) =
+                idx_lookup.get(usize::try_from(pos.to_u32() / SOURCE_FILE_ALIGN).unwrap())
+            {
+                usize::try_from(*idx).unwrap()
+            } else {
+                files.source_files.len() - 1
+            }
         } else {
-            files.source_files.len() - 1
+            files.source_files.partition_point(|x| x.start_pos <= pos) - 1
         }
     }
 
